@@ -1,12 +1,44 @@
 {
   "name": "data-analysis",
-  "version": "0.0.0",
+  "version": "0.0.1",
+  "author": "wjy",
   "private": true,
   "type": "module",
   "main": "electron/main.js",
   "build": {
     "appId": "com.zjwl.srm",
-    "productName": "SRM导出助手"
+    "productName": "SRM导出助手",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+
+    "mac": {
+      "icon": "build/icon.icns"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   },
   "scripts": {
     "dev": "vite",
