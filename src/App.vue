@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { downloadFile, exportReport} from '@/api/index'
 import { buildExportBody} from '@/utils/request'
 import { usePolling} from '@/composables/usePolling'
@@ -26,7 +26,8 @@ const EXPORT_BUTTONS = [
 const taskState = reactive(
   Object.fromEntries(EXPORT_BUTTONS.map(b => [b.type, {
     taskId: null,
-    exporting: false,   // 导出请求 loading
+    // exporting: false, 
+    state: '',   // generating | generated | downloading | processing | success | error
     downloadUrl: '',    // 文件下载链接
     timerId: null,      // setInterval id
     alertMsg: '',
@@ -65,9 +66,10 @@ async function fetchData(type = 'total') {
   const state = taskState[type];
 
   // 若已在轮询中，不重复发起
-  if (state.exporting) return;
+  if (state.state === 'generating') return;
   state.taskId = null;
-  state.exporting = true;
+  // state.exporting = true;
+  state.state = 'generating';
   state.alertMsg = '';
   state.downloadUrl = '';
 
@@ -79,7 +81,8 @@ async function fetchData(type = 'total') {
 
     console.log('[export] resp', res);
     if(res.data.status !== '0') {
-      state.exporting = false;
+      // state.exporting = false;
+      state.state = 'error';
       return Promise.reject(new Error(res.data.message || '导出请求失败'))
     }
       
@@ -100,7 +103,8 @@ async function fetchData(type = 'total') {
               state.taskId = task.id
               
             } else {
-              state.exporting = false
+              // state.exporting = false
+              state.state = 'error'
               setTaskAlert(type, 'error', '未找到对应的导出任务，请确认业务系统已正确处理请求')
             }
           }
@@ -108,8 +112,8 @@ async function fetchData(type = 'total') {
             const task = data.find(item => item.id == taskId)
             if (task) {
               if (task.fbk4 == '2') {
-                
-                state.exporting = false
+                state.state = 'generated'
+                // state.exporting = false
                 state.downloadUrl = task.attachmentLink
                 console.log(`[download] ${type}`, state.downloadUrl);
                 setTaskAlert(type, 'success', '文件已生成，点击下载按钮获取文件')
@@ -131,25 +135,84 @@ async function fetchData(type = 'total') {
     console.error(err);
     let msg = `请求失败：${err.message}`;
     setTaskAlert(type, 'error', msg);
-    state.exporting = false;
+    // state.exporting = false;
+    state.state = 'error';
   }
 }
 
 const download = async (type, label) => {
-  const url = taskState[type].downloadUrl;
-  if (!url) return;
+  const url = taskState[type].downloadUrl
 
-  // 使用 Electron API 下载文件
+  if (!url) return
+
+  const state = taskState[type]
+
+  state.state = 'downloading'
+
+  setTaskAlert(
+    type,
+    'info',
+    '正在下载文件...'
+  )
+
   const res = await downloadFile(
     url,
-    `${label}-${new Date().getMonth() + 1}月.xlsx`
+    `${label}-${new Date().getMonth() + 1}月.xlsx`,
+    type
   )
-  if (res.success) {
-    setTaskAlert(type, 'success', '文件下载成功');
-  } else {
-    setTaskAlert(type, 'error', `文件下载失败：${res.message}`);
+
+  if (!res.success) {
+    state.state = 'error'
+
+    setTaskAlert(
+      type,
+      'error',
+      `下载失败：${res.message}`
+    )
   }
 }
+
+onMounted(() => {
+  window.electronAPI.onDownloadStatus((data) => {
+    const state = taskState[data.type]
+
+    if (!state) return
+
+    switch (data.stage) {
+
+      case 'processing':
+        state.state = 'processing'
+        setTaskAlert(
+          data.type,
+          'info',
+          '文件下载完成，正在处理Excel数据...'
+        )
+        break
+
+      case 'success':
+        state.state = 'success'
+        setTaskAlert(
+          data.type,
+          'success',
+          'Excel处理完成，已保存到本地'
+        )
+        break
+
+      case 'error':
+        state.state = 'error'
+        setTaskAlert(
+          data.type,
+          'error',
+          data.message || '处理失败'
+        )
+        break
+    }
+  })
+})
+
+onUnmounted(() => {
+  window.electronAPI.removeDownloadStatus()
+})
 
 </script>
 
@@ -213,12 +276,12 @@ const download = async (type, label) => {
             <div class="export-cell">
               <button
                 class="btn btn-primary btn-full"
-                :disabled="taskState[btn.type].exporting"
+                :disabled="taskState[btn.type].state === 'generating'"
                 @click="fetchData(btn.type)"
               >
-                <span v-if="taskState[btn.type].exporting" class="spinner"></span>
+                <span v-if="taskState[btn.type].state === 'generating'" class="spinner"></span>
                 <span v-else>🚀</span>
-                <span v-if="taskState[btn.type].exporting">等待生成…</span>
+                <span v-if="taskState[btn.type].state === 'generating'">等待生成…</span>
                 <span v-else>{{ btn.label }}</span>
               </button>
               <!-- 行内提示 -->
@@ -239,8 +302,17 @@ const download = async (type, label) => {
                 :disabled="!taskState[btn.type].downloadUrl"
                 @click="download(btn.type, btn.label)"
               >
-                <span>⬇️</span>
-                下载文件
+                <span v-if="taskState[btn.type].state === 'downloading' || taskState[btn.type].state === 'processing'" class="spinner"></span>
+                <span v-else>⬇️</span>
+                {{
+                  taskState[btn.type].state === 'downloading'
+                    ? '下载中...'
+                    : taskState[btn.type].state === 'processing'
+                    ? '处理中...'
+                    : taskState[btn.type].state === 'success'
+                    ? '已下载'
+                    : '下载文件'
+                }}
               </button>
             </div>
 

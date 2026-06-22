@@ -3,9 +3,11 @@ import path from 'path'
 import axios from 'axios'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
+import { processSrmData } from '../src/utils/processExcel.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const bufferCache = new Map()
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -20,6 +22,7 @@ function createWindow() {
     win.loadFile(
       path.join(__dirname, '../dist/index.html')
     )
+    win.webContents.openDevTools()
   } else {
     win.loadURL('http://localhost:5173')
     win.webContents.openDevTools()
@@ -55,9 +58,9 @@ ipcMain.handle('http-request', async (_, config) => {
   }
 })
 
-ipcMain.handle('download-file', async (_, config) => {
+ipcMain.handle('download-file', async (event, config) => {
   try {
-    const { url, fileName } = config
+    const { url, fileName, taskType } = config
 
     const savePath = dialog.showSaveDialogSync({
       defaultPath: fileName
@@ -76,19 +79,71 @@ ipcMain.handle('download-file', async (_, config) => {
       responseType: 'arraybuffer'
     })
 
-    fs.writeFileSync(savePath, response.data)
+    //
+    // 通知Vue下载完成
+    //
+    event.sender.send(
+      'download-status',
+      {
+        type: taskType,
+        stage: 'processing',
+        savePath
+      }
+    )
+
+    //
+    // 后台处理
+    //
+    setTimeout(async () => {
+      try {
+        const processedBuffer =
+          await processSrmData(
+            response.data
+          )
+
+        fs.writeFileSync(
+          savePath,
+          Buffer.from(
+            processedBuffer
+          )
+        )
+
+        //
+        // 通知Vue处理完成
+        //
+        event.sender.send(
+          'download-status',
+          {
+            type: taskType,
+            stage: 'success',
+          }
+        )
+
+      } catch (err) {
+        event.sender.send(
+          'download-status',
+          {
+            type: taskType,
+            stage: 'error',
+            message: err.message
+          }
+        )
+      }
+
+    }, 0)
 
     return {
-      success: true,
-      path: savePath
+      success: true
     }
   } catch (error) {
+    console.error('下载文件失败', error)
     return {
       success: false,
       message: error.message
     }
   }
 })
+
 
 app.whenReady().then(() => {
   createWindow()

@@ -1,6 +1,7 @@
 const BASE_URL = 'http://172.22.35.101:8001'
 
 export function exportReport(token, data) {
+  console.log(data)
   return window.electronAPI.request({
     url: `${BASE_URL}/zjark-cloud-srmreport/purchaseTrackingReportYesterdayResult/cloudExportExcel`,
     method: 'POST',
@@ -29,9 +30,10 @@ export function queryExportTask(token) {
   })
 }
 
-export function downloadFile(url, fileName) {
+export function downloadFile(url, fileName, taskType) {
   return window.electronAPI.downloadFile({
     url,
-    fileName
+    fileName,
+    taskType
   })
 }
