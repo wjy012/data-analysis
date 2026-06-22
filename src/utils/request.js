@@ -29,6 +29,10 @@ export function buildExportBody(type) {
       '7129',
       '7107'
     ]
+  } else if (type === 'orderFrameInfo') {
+    params.paramBlock.data.frameContractOwnershipList = ['7129', '7107']
+    params.paramBlock.data.orderApproveTimeList = getDateRange('month')
+    params.paramBlock.data.groupByWhat = '1'
   } else {
     params.paramBlock.data[type] =
       getDateRange('month')

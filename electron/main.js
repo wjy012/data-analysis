@@ -3,7 +3,7 @@ import path from 'path'
 import axios from 'axios'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { processSrmData } from '../src/utils/processExcel.js'
+import { processSrmData, processOrderFrameData } from '../src/utils/processExcel.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -60,7 +60,7 @@ ipcMain.handle('http-request', async (_, config) => {
 
 ipcMain.handle('download-file', async (event, config) => {
   try {
-    const { url, fileName, taskType } = config
+    const { url, fileName, taskType, method = 'GET', data } = config
 
     const savePath = dialog.showSaveDialogSync({
       defaultPath: fileName
@@ -74,8 +74,17 @@ ipcMain.handle('download-file', async (event, config) => {
     }
 
     const response = await axios({
+      headers: {
+        Accept: '*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Content-Type': 'application/json',
+        noRedirect: '1',
+        zjarkLang: 'zh_CN',
+        token: config.token || '' // 从请求配置中获取 token，默认为空字符串 
+      },
       url,
-      method: 'GET',
+      method,
+      data,
       responseType: 'arraybuffer'
     })
 
@@ -96,10 +105,17 @@ ipcMain.handle('download-file', async (event, config) => {
     //
     setTimeout(async () => {
       try {
-        const processedBuffer =
-          await processSrmData(
+        let processedBuffer = response.data
+        if (taskType === 'total') {
+          processedBuffer = 
+            await processSrmData(
+              response.data
+            )
+        } else if (taskType === 'orderFrameInfo') {
+          processedBuffer = await processOrderFrameData(
             response.data
           )
+        }
 
         fs.writeFileSync(
           savePath,

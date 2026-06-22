@@ -19,6 +19,7 @@ const EXPORT_BUTTONS = [
   { type: 'enquiryApproveTimeSection',  label: '比价单审批耗时数据' },
   { type: 'orderApproveTimeSection',    label: '订单审批耗时数据' },
   { type: 'bidApproveTimeSection',      label: '定标流程耗时数据' },
+  { type: 'orderFrameInfo',             label: '框架合同下单数据' }
 ];
 
 /* ───── 每个导出任务的独立状态 ───── */
@@ -60,6 +61,11 @@ async function fetchData(type = 'total') {
     alertType.value = 'error';
     alertMsg.value = '请先填写认证 Token';
     return;
+  }
+
+  if(type === 'orderFrameInfo') {
+    exportOrderFrameInfo()
+    return 
   }
 
   alertMsg.value = '';
@@ -140,6 +146,27 @@ async function fetchData(type = 'total') {
   }
 }
 
+const exportOrderFrameInfo = async () => {
+  const res = await downloadFile({
+    token: token.value,
+    url: 'http://172.22.35.101:8001/zjark-cloud-srmreport/orderFrameInfo/exportExcel',
+    fileName: `框架合同下单数据-${new Date().getMonth() + 1}月.xlsx`,
+    taskType: 'orderFrameInfo',
+    method: 'POST',
+    data: buildExportBody('orderFrameInfo'),
+  })
+
+  if (!res.success) {
+    state.state = 'error'
+
+    setTaskAlert(
+      type,
+      'error',
+      `下载失败：${res.message}`
+    )
+  }
+}
+
 const download = async (type, label) => {
   const url = taskState[type].downloadUrl
 
@@ -155,11 +182,11 @@ const download = async (type, label) => {
     '正在下载文件...'
   )
 
-  const res = await downloadFile(
+  const res = await downloadFile({
     url,
-    `${label}-${new Date().getMonth() + 1}月.xlsx`,
-    type
-  )
+    fileName: `${label}-${new Date().getMonth() + 1}月.xlsx`,
+    taskType: type
+  })
 
   if (!res.success) {
     state.state = 'error'
@@ -272,6 +299,40 @@ onUnmounted(() => {
           <!-- 每行：导出按钮 + 对应下载按钮 + 行内提示 -->
           <template v-for="btn in EXPORT_BUTTONS" :key="btn.type">
 
+          <!-- 框架合同下单数据：只显示一个按钮 -->
+          <template v-if="btn.type === 'orderFrameInfo'">
+
+            <div class="export-cell export-cell-span">
+              <button
+                class="btn btn-primary btn-full"
+                @click="fetchData(btn.type)"
+              >
+                ⬇️ {{ btn.label }}
+              </button>
+
+              <div
+                v-if="taskState[btn.type].alertMsg"
+                :class="['alert', 'alert-' + taskState[btn.type].alertType]"
+                style="margin-top:6px;padding:6px 10px;font-size:12px"
+              >
+                <span>
+                  {{
+                    taskState[btn.type].alertType === 'error'
+                      ? '❌'
+                      : taskState[btn.type].alertType === 'success'
+                      ? '✅'
+                      : 'ℹ️'
+                  }}
+                </span>
+                <span>{{ taskState[btn.type].alertMsg }}</span>
+              </div>
+            </div>
+
+          </template>
+
+          <!-- 其它报表：保持导出+下载两列 -->
+          <template v-else>
+
             <!-- 导出按钮 -->
             <div class="export-cell">
               <button
@@ -279,18 +340,34 @@ onUnmounted(() => {
                 :disabled="taskState[btn.type].state === 'generating'"
                 @click="fetchData(btn.type)"
               >
-                <span v-if="taskState[btn.type].state === 'generating'" class="spinner"></span>
+                <span
+                  v-if="taskState[btn.type].state === 'generating'"
+                  class="spinner"
+                ></span>
                 <span v-else>🚀</span>
-                <span v-if="taskState[btn.type].state === 'generating'">等待生成…</span>
-                <span v-else>{{ btn.label }}</span>
+
+                <span v-if="taskState[btn.type].state === 'generating'">
+                  等待生成…
+                </span>
+                <span v-else>
+                  {{ btn.label }}
+                </span>
               </button>
-              <!-- 行内提示 -->
+
               <div
                 v-if="taskState[btn.type].alertMsg"
                 :class="['alert', 'alert-' + taskState[btn.type].alertType]"
                 style="margin-top:6px;padding:6px 10px;font-size:12px"
               >
-                <span>{{ taskState[btn.type].alertType === 'error' ? '❌' : taskState[btn.type].alertType === 'success' ? '✅' : 'ℹ️' }}</span>
+                <span>
+                  {{
+                    taskState[btn.type].alertType === 'error'
+                      ? '❌'
+                      : taskState[btn.type].alertType === 'success'
+                      ? '✅'
+                      : 'ℹ️'
+                  }}
+                </span>
                 <span>{{ taskState[btn.type].alertMsg }}</span>
               </div>
             </div>
@@ -302,8 +379,15 @@ onUnmounted(() => {
                 :disabled="!taskState[btn.type].downloadUrl"
                 @click="download(btn.type, btn.label)"
               >
-                <span v-if="taskState[btn.type].state === 'downloading' || taskState[btn.type].state === 'processing'" class="spinner"></span>
+                <span
+                  v-if="
+                    taskState[btn.type].state === 'downloading' ||
+                    taskState[btn.type].state === 'processing'
+                  "
+                  class="spinner"
+                ></span>
                 <span v-else>⬇️</span>
+
                 {{
                   taskState[btn.type].state === 'downloading'
                     ? '下载中...'
@@ -317,6 +401,8 @@ onUnmounted(() => {
             </div>
 
           </template>
+
+        </template>
         </div>
       </div>
     </div>

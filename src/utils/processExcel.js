@@ -183,3 +183,94 @@ export async function processSrmData(buffer) {
 
   return await outputWorkbook.xlsx.writeBuffer()
 }
+
+export async function processOrderFrameData(arrayBuffer) {
+  // ===== 读取源文件 =====
+  const sourceWorkbook = new ExcelJS.Workbook()
+  await sourceWorkbook.xlsx.load(arrayBuffer)
+
+  const sourceSheet = sourceWorkbook.getWorksheet(1)
+
+  // pandas header=2
+  const headerRowNumber = 3
+
+  // ===== 读取表头 =====
+  const headerRow = sourceSheet.getRow(headerRowNumber)
+
+  const headers = []
+
+  for (let col = 1; col <= headerRow.cellCount; col++) {
+    headers.push(
+      headerRow.getCell(col).text?.trim?.() ??
+      String(headerRow.getCell(col).value ?? '')
+    )
+  }
+
+  // ===== 读取数据 =====
+  const rows = []
+
+  for (
+    let rowNum = headerRowNumber + 1;
+    rowNum <= sourceSheet.rowCount;
+    rowNum++
+  ) {
+    const row = sourceSheet.getRow(rowNum)
+
+    const rowData = []
+
+    for (let col = 1; col <= headers.length; col++) {
+      rowData.push(row.getCell(col).value)
+    }
+
+    rows.push(rowData)
+  }
+
+  // ===== 找到列位置 =====
+  const purchaseOrgIdx = headers.indexOf('采购组织名称')
+  const contractTypeIdx = headers.indexOf('框架合同类型')
+
+  if (purchaseOrgIdx === -1) {
+    throw new Error('未找到列：采购组织名称')
+  }
+
+  // ===== 插入新列 =====
+  const insertPos = purchaseOrgIdx + 1
+
+  headers.splice(insertPos, 0, '筛选删除')
+
+  // ===== 数据处理 =====
+  rows.forEach(row => {
+    const purchaseOrg = row[purchaseOrgIdx]
+    const contractType = row[contractTypeIdx]
+
+    let value
+
+    if (
+      purchaseOrg === '紫金矿业物流有限公司采购组织' ||
+      purchaseOrg === '紫金矿业物流（厦门）有限公司采购组织'
+    ) {
+      value = '是'
+    } else if (contractType === '合作协议') {
+      value = '是'
+    } else {
+      value = '否'
+    }
+
+    row.splice(insertPos, 0, value)
+  })
+
+  // ===== 创建新Workbook（模拟df.to_excel）=====
+  const outputWorkbook = new ExcelJS.Workbook()
+  const outputSheet = outputWorkbook.addWorksheet('Sheet1')
+
+  // 表头
+  outputSheet.addRow(headers)
+
+  // 数据
+  rows.forEach(row => {
+    outputSheet.addRow(row)
+  })
+
+  // 返回Excel Buffer
+  return await outputWorkbook.xlsx.writeBuffer()
+}

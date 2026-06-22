@@ -30,10 +30,6 @@ export function queryExportTask(token) {
   })
 }
 
-export function downloadFile(url, fileName, taskType) {
-  return window.electronAPI.downloadFile({
-    url,
-    fileName,
-    taskType
-  })
+export function downloadFile(config) {
+  return window.electronAPI.downloadFile(config)
 }
