@@ -3,7 +3,7 @@ import path from 'path'
 import axios from 'axios'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { processSrmData, processOrderFrameData } from '../src/utils/processExcel.js'
+import { processSrmData, processPurchasePlan, processOrderFrameData } from '../src/utils/processExcel.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -113,6 +113,10 @@ ipcMain.handle('download-file', async (event, config) => {
             )
         } else if (taskType === 'orderFrameInfo') {
           processedBuffer = await processOrderFrameData(
+            response.data
+          )
+        } else if (taskType === 'fbk45Section') {
+          processedBuffer = await processPurchasePlan(
             response.data
           )
         }

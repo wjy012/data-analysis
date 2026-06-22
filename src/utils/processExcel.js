@@ -31,6 +31,7 @@ export async function processSrmData(buffer) {
   // =========================
   const newHeaders = [...headers]
 
+  // 采购方式后新增列
   newHeaders.splice(
     purchaseMethodIndex + 1,
     0,
@@ -39,6 +40,19 @@ export async function processSrmData(buffer) {
     '筛选删除',
     '采购组织更新'
   )
+
+  // 公司名称后新增列
+  const companyNameIndex =
+    newHeaders.indexOf('公司名称')
+
+  if (companyNameIndex !== -1) {
+    newHeaders.splice(
+      companyNameIndex + 1,
+      0,
+      '修改公司代码',
+      '修改公司名称'
+    )
+  }
 
   // =========================
   // 转JSON
@@ -68,10 +82,7 @@ export async function processSrmData(buffer) {
     // =====================
     // 国内国外
     // =====================
-    rowData['国内国外'] =
-      rowData['是否境外'] === '否'
-        ? '国内'
-        : '国外'
+    rowData['国内国外'] = rowData['是否境外'] === '否'? '国内' : '国外'
 
     // =====================
     // 订单月份
@@ -83,18 +94,11 @@ export async function processSrmData(buffer) {
         rowData['订单审核时间']
       ).substring(0, 10)
 
-      const month = Number(
-        dateStr.substring(5, 7)
-      )
+      const month = Number(dateStr.substring(5, 7))
 
-      const day = Number(
-        dateStr.substring(8, 10)
-      )
+      const day = Number(dateStr.substring(8, 10))
 
-      orderMonth =
-        day >= 26
-          ? (month === 12 ? 1 : month + 1)
-          : month
+      orderMonth = day >= 26? (month === 12 ? 1 : month + 1): month
     }
 
     rowData['订单月份'] = orderMonth
@@ -102,30 +106,30 @@ export async function processSrmData(buffer) {
     // =====================
     // 采购组织更新
     // =====================
-    const purchaseOrg =
-      Number(rowData['采购组织'])
+    const purchaseOrg = Number(rowData['采购组织'])
 
-    const companyName =
-      rowData['买方公司名称']
+    const companyName = rowData['买方公司名称']
 
     let purchaseOrgNew = ''
 
     if (purchaseOrg === 7129) {
-      purchaseOrgNew =
-        companyName ===
-        '紫金矿业物流（厦门）有限公司'
-          ? 7107
-          : 7129
+      purchaseOrgNew = companyName === '紫金矿业物流（厦门）有限公司'? 7107: 7129
     } else if (purchaseOrg === 7107) {
-      purchaseOrgNew =
-        companyName ===
-        '紫金矿业物流有限公司'
-          ? 7129
-          : 7107
+      purchaseOrgNew = companyName === '紫金矿业物流有限公司'? 7129: 7107
     }
 
-    rowData['采购组织更新'] =
-      purchaseOrgNew
+    rowData['采购组织更新'] = purchaseOrgNew
+
+    // =====================
+    // 修改公司代码、修改公司名称
+    // =====================
+    if (String(rowData['公司代码']) === '7129') {
+      rowData['修改公司代码'] = rowData['代理申报公司代码']
+      rowData['修改公司名称'] = rowData['代理申报公司']
+    } else {
+      rowData['修改公司代码'] = rowData['公司代码']
+      rowData['修改公司名称'] = rowData['公司名称']
+    }
 
     // =====================
     // 筛选删除
@@ -142,18 +146,14 @@ export async function processSrmData(buffer) {
     resultData.push(rowData)
   }
 
-  console.log(
-    `处理完成，共 ${resultData.length} 行`
-  )
+  console.log(`处理完成，共 ${resultData.length} 行`)
 
   // =========================
   // 创建新Workbook
   // =========================
-  const outputWorkbook =
-    new ExcelJS.Workbook()
+  const outputWorkbook = new ExcelJS.Workbook()
 
-  const outputSheet =
-    outputWorkbook.addWorksheet('Sheet1')
+  const outputSheet = outputWorkbook.addWorksheet('Sheet1')
 
   // 中文表头
   outputSheet.addRow(newHeaders)
@@ -165,11 +165,18 @@ export async function processSrmData(buffer) {
     headers.forEach((header) => {
       row.push(item[header])
 
+      // 采购方式后新增列
       if (header === '采购方式') {
         row.push(item['订单月份'])
         row.push(item['国内国外'])
         row.push(item['筛选删除'])
         row.push(item['采购组织更新'])
+      }
+
+      // 公司名称后新增列
+      if (header === '公司名称') {
+        row.push(item['修改公司代码'])
+        row.push(item['修改公司名称'])
       }
     })
 
@@ -179,6 +186,142 @@ export async function processSrmData(buffer) {
   // 表头样式
   outputSheet.getRow(1).font = {
     bold: true
+  }
+
+  return await outputWorkbook.xlsx.writeBuffer()
+}
+
+export async function processPurchasePlan(arrayBuffer) {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(arrayBuffer)
+
+  const sourceSheet = workbook.getWorksheet(1)
+
+  // 第2行中文表头
+  const headerRowNumber = 2
+  const headerRow = sourceSheet.getRow(headerRowNumber)
+
+  const headers = []
+
+  for (let col = 1; col <= headerRow.cellCount; col++) {
+    headers.push(
+      String(headerRow.getCell(col).text || '').trim()
+    )
+  }
+
+  const headerMap = {}
+
+  headers.forEach((name, index) => {
+    headerMap[name] = index
+  })
+
+  const outputColumns = [
+    '需求计划池单号',
+    '状态',
+    '采购模式',
+    '方案单单号',
+    '分配采购组时间',
+    '方案单制单时间',
+    '方案单提交审批时间',
+    '方案单审核时间',
+    '采购方案制单耗时'
+  ]
+
+  const assignIndex = headerMap['分配采购组时间']
+  const submitIndex = headerMap['方案单提交审批时间']
+
+  if (assignIndex === undefined) {
+    throw new Error('未找到列：分配采购组时间')
+  }
+
+  if (submitIndex === undefined) {
+    throw new Error('未找到列：方案单提交审批时间')
+  }
+
+  // 创建结果Workbook
+  const outputWorkbook = new ExcelJS.Workbook()
+  const outputSheet = outputWorkbook.addWorksheet('采购方案统计')
+
+  // 写表头
+  outputSheet.addRow(outputColumns)
+
+  // 日期转天数计算
+  function calcDays(assignTime, submitTime) {
+    if (!assignTime || !submitTime) {
+      return ''
+    }
+
+    const start = new Date(assignTime)
+    const end = new Date(submitTime)
+
+    if (isNaN(start) || isNaN(end)) {
+      return ''
+    }
+
+    // 只保留日期部分
+    const startDate = new Date(
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate()
+    )
+
+    const endDate = new Date(
+      end.getFullYear(),
+      end.getMonth(),
+      end.getDate()
+    )
+
+    const diff =
+      (endDate.getTime() - startDate.getTime()) /
+      (1000 * 60 * 60 * 24)
+
+    return Math.floor(diff)
+  }
+
+  // 数据从第3行开始
+  for (
+    let rowNum = headerRowNumber + 1;
+    rowNum <= sourceSheet.rowCount;
+    rowNum++
+  ) {
+    const row = sourceSheet.getRow(rowNum)
+
+    const getValue = columnName => {
+      const idx = headerMap[columnName]
+
+      if (idx === undefined) {
+        return ''
+      }
+
+      const value = row.getCell(idx + 1).value
+
+      if (value == null) {
+        return ''
+      }
+
+      if (typeof value === 'object' && value.text) {
+        return value.text
+      }
+
+      return value
+    }
+
+    const assignTime = getValue('分配采购组时间')
+    const submitTime = getValue('方案单提交审批时间')
+
+    const days = calcDays(assignTime, submitTime)
+
+    outputSheet.addRow([
+      getValue('需求计划池单号'),
+      getValue('状态'),
+      getValue('采购模式'),
+      getValue('方案单单号'),
+      assignTime,
+      getValue('方案单制单时间'),
+      submitTime,
+      getValue('方案单审核时间'),
+      days
+    ])
   }
 
   return await outputWorkbook.xlsx.writeBuffer()
