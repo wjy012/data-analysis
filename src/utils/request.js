@@ -45,7 +45,7 @@ export function buildExportBody(type) {
   }
 
   params.paramBlock.blockId = 'paramBlock'
-
+  console.log('params', params.paramBlock.data)
   return {
     blocks: params
   }

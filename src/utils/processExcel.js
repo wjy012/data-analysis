@@ -1,5 +1,55 @@
 import ExcelJS from 'exceljs'
 
+// Excel序列日期转JS日期
+function excelDateToJSDate(serial) {
+  return new Date((serial - 25569) * 86400 * 1000)
+}
+
+// 统一解析日期
+function parseDate(value) {
+  if (!value) return null
+
+  if (value instanceof Date) {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return excelDateToJSDate(value)
+  }
+
+  const date = new Date(value)
+
+  return isNaN(date.getTime())
+    ? null
+    : date
+}
+
+// 只按日期计算天数
+function calcDays(assignTime, submitTime) {
+  const start = parseDate(assignTime)
+  const end = parseDate(submitTime)
+
+  if (!start || !end) {
+    return ''
+  }
+
+  const startDate = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate()
+  )
+
+  const endDate = new Date(
+    end.getFullYear(),
+    end.getMonth(),
+    end.getDate()
+  )
+
+  return Math.floor(
+    (endDate - startDate) / 86400000
+  )
+}
+
 export async function processSrmData(buffer) {
   const workbook = new ExcelJS.Workbook()
 
@@ -191,140 +241,114 @@ export async function processSrmData(buffer) {
   return await outputWorkbook.xlsx.writeBuffer()
 }
 
-export async function processPurchasePlan(arrayBuffer) {
-  const workbook = new ExcelJS.Workbook()
+export async function createDurationReport(
+  arrayBuffer,
+  {
+    durationColumn,
+    startColumn,
+    endColumn
+  }
+) {
+  try {
+    const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(arrayBuffer)
 
   const sourceSheet = workbook.getWorksheet(1)
 
-  // 第2行中文表头
-  const headerRowNumber = 2
-  const headerRow = sourceSheet.getRow(headerRowNumber)
+  const headerRow = sourceSheet.getRow(2)
 
   const headers = []
 
-  for (let col = 1; col <= headerRow.cellCount; col++) {
+  headerRow.eachCell(cell => {
     headers.push(
-      String(headerRow.getCell(col).text || '').trim()
+      String(cell.text || cell.value || '').trim()
     )
-  }
+  })
 
   const headerMap = {}
 
   headers.forEach((name, index) => {
-    headerMap[name] = index
+    headerMap[name] = index + 1
   })
 
-  const outputColumns = [
+  const requiredColumns = [
     '需求计划池单号',
     '状态',
     '采购模式',
     '方案单单号',
-    '分配采购组时间',
-    '方案单制单时间',
-    '方案单提交审批时间',
-    '方案单审核时间',
-    '采购方案制单耗时'
+    startColumn,
+    endColumn
   ]
 
-  const assignIndex = headerMap['分配采购组时间']
-  const submitIndex = headerMap['方案单提交审批时间']
-
-  if (assignIndex === undefined) {
-    throw new Error('未找到列：分配采购组时间')
-  }
-
-  if (submitIndex === undefined) {
-    throw new Error('未找到列：方案单提交审批时间')
-  }
-
-  // 创建结果Workbook
   const outputWorkbook = new ExcelJS.Workbook()
-  const outputSheet = outputWorkbook.addWorksheet('采购方案统计')
+  const outputSheet = outputWorkbook.addWorksheet('统计结果')
 
-  // 写表头
-  outputSheet.addRow(outputColumns)
+  outputSheet.addRow([
+    ...requiredColumns,
+    durationColumn
+  ])
 
-  // 日期转天数计算
-  function calcDays(assignTime, submitTime) {
-    if (!assignTime || !submitTime) {
-      return ''
-    }
+  const uniqueSet = new Set()
 
-    const start = new Date(assignTime)
-    const end = new Date(submitTime)
+  const outputRows = []
 
-    if (isNaN(start) || isNaN(end)) {
-      return ''
-    }
+  const uniqueCol = headerMap['方案单单号']
 
-    // 只保留日期部分
-    const startDate = new Date(
-      start.getFullYear(),
-      start.getMonth(),
-      start.getDate()
-    )
+  const startCol = headerMap[startColumn]
 
-    const endDate = new Date(
-      end.getFullYear(),
-      end.getMonth(),
-      end.getDate()
-    )
+  const endCol = headerMap[endColumn]
 
-    const diff =
-      (endDate.getTime() - startDate.getTime()) /
-      (1000 * 60 * 60 * 24)
-
-    return Math.floor(diff)
-  }
-
-  // 数据从第3行开始
   for (
-    let rowNum = headerRowNumber + 1;
+    let rowNum = 3;
     rowNum <= sourceSheet.rowCount;
     rowNum++
   ) {
     const row = sourceSheet.getRow(rowNum)
 
-    const getValue = columnName => {
-      const idx = headerMap[columnName]
+    const uniqueKey = String(
+      row.getCell(uniqueCol).text ||
+      row.getCell(uniqueCol).value ||
+      ''
+    ).trim()
 
-      if (idx === undefined) {
-        return ''
-      }
+    if (!uniqueKey) continue
 
-      const value = row.getCell(idx + 1).value
+    if (uniqueSet.has(uniqueKey)) continue
 
-      if (value == null) {
-        return ''
-      }
+    const startValue = row.getCell(startCol).value
 
-      if (typeof value === 'object' && value.text) {
-        return value.text
-      }
+    const endValue = row.getCell(endCol).value
 
-      return value
+    if (!startValue || !endValue)
+      continue
+
+    uniqueSet.add(uniqueKey)
+
+    const resultRow = []
+
+    for (const col of requiredColumns) {
+      resultRow.push(
+        row.getCell(headerMap[col]).value
+      )
     }
 
-    const assignTime = getValue('分配采购组时间')
-    const submitTime = getValue('方案单提交审批时间')
+    resultRow.push(
+      calcDays(startValue, endValue)
+    )
 
-    const days = calcDays(assignTime, submitTime)
-
-    outputSheet.addRow([
-      getValue('需求计划池单号'),
-      getValue('状态'),
-      getValue('采购模式'),
-      getValue('方案单单号'),
-      assignTime,
-      getValue('方案单制单时间'),
-      submitTime,
-      getValue('方案单审核时间'),
-      days
-    ])
+    outputRows.push(resultRow)
   }
 
+  outputRows.forEach(row => {
+    outputSheet.addRow(row)
+  })
+
   return await outputWorkbook.xlsx.writeBuffer()
+
+  } catch (error) {
+    console.error(error)
+  }
+  
 }
 
 export async function processOrderFrameData(arrayBuffer) {

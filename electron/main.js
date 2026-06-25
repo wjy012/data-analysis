@@ -3,7 +3,7 @@ import path from 'path'
 import axios from 'axios'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { processSrmData, processPurchasePlan, processOrderFrameData } from '../src/utils/processExcel.js'
+import { processSrmData, createDurationReport, processOrderFrameData } from '../src/utils/processExcel.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -116,11 +116,52 @@ ipcMain.handle('download-file', async (event, config) => {
             response.data
           )
         } else if (taskType === 'fbk45Section') {
-          processedBuffer = await processPurchasePlan(
-            response.data
+          // 方案制单耗时
+          processedBuffer = await createDurationReport(
+            response.data, {
+              durationColumn: '方案制单耗时',
+              startColumn: '分配采购组时间',
+              endColumn: '方案单提交审批时间'
+            }
+          )
+        } else if (taskType === 'programmeApproveTimeSection') {
+          console.log("方案审批耗时")
+          // 方案审批耗时
+          processedBuffer = await createDurationReport(
+            response.data, {
+              durationColumn: '方案审批耗时',
+              startColumn: '方案单提交审批时间',
+              endColumn: '方案单审核时间'
+            }
+          )
+        } else if (taskType === 'enquiryApproveTimeSection') {
+          // 比价单审批耗时数据
+          processedBuffer = await createDurationReport(
+            response.data, {
+              durationColumn: '比价单审批耗时',
+              startColumn: '询比价提交审批时间',
+              endColumn: '询比价单审核时间'
+            }
+          )
+        } else if (taskType === 'orderApproveTimeSection') {
+          // 订单审批耗时数据
+          processedBuffer = await createDurationReport(
+            response.data, {
+              durationColumn: '订单审批耗时',
+              startColumn: '订单提交审批时间',
+              endColumn: '订单审核时间'
+            }
+          )
+        } else if (taskType === 'bidApproveTimeSection') {
+          // 定标流程耗时数据
+          processedBuffer = await createDurationReport(
+            response.data, {
+              durationColumn: '定标流程耗时',
+              startColumn: '定标开始时间',
+              endColumn: '定标时间'
+            }
           )
         }
-
         fs.writeFileSync(
           savePath,
           Buffer.from(
