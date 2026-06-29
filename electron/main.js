@@ -3,11 +3,10 @@ import path from 'path'
 import axios from 'axios'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { processSrmData, createDurationReport, processOrderFrameData } from '../src/utils/processExcel.js'
+import { processSrmData, createDurationReport, processOrderFrameData } from './utils/processExcel.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const bufferCache = new Map()
 
 function createWindow() {
   const win = new BrowserWindow({
