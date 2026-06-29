@@ -24,8 +24,7 @@ function parseDate(value) {
     : date
 }
 
-// 只按日期计算天数
-function calcDays(assignTime, submitTime) {
+function calcHours(assignTime, submitTime) {
   const start = parseDate(assignTime)
   const end = parseDate(submitTime)
 
@@ -33,21 +32,7 @@ function calcDays(assignTime, submitTime) {
     return ''
   }
 
-  const startDate = new Date(
-    start.getFullYear(),
-    start.getMonth(),
-    start.getDate()
-  )
-
-  const endDate = new Date(
-    end.getFullYear(),
-    end.getMonth(),
-    end.getDate()
-  )
-
-  return Math.floor(
-    (endDate - startDate) / 86400000
-  )
+  return (end - start) / (1000 * 60 * 60)
 }
 
 export async function processSrmData(buffer) {
@@ -361,7 +346,7 @@ export async function createDurationReport(
     }
 
     resultRow.push(
-      calcDays(startValue, endValue)
+      calcHours(startValue, endValue)
     )
 
     outputRows.push(resultRow)
