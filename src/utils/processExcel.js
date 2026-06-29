@@ -81,19 +81,33 @@ export async function processSrmData(buffer) {
   // =========================
   const newHeaders = [...headers]
 
-  // 采购方式后新增列
+  // 找到相关列位置
+  const materialCodeIndex = newHeaders.indexOf('订单物料代码')
+
+  const materialDescIndex = newHeaders.indexOf('订单物料描述')
+
+  // 删除原位置
+  const materialCode = newHeaders.splice(materialCodeIndex, 1)[0]
+
+  const materialDesc = newHeaders.splice(newHeaders.indexOf('订单物料描述'),1)[0]
+
+  // 在采购方式后插入
+  const purchaseMethodPos = newHeaders.indexOf('采购方式')
+
   newHeaders.splice(
-    purchaseMethodIndex + 1,
+    purchaseMethodPos + 1,
     0,
     '订单月份',
     '国内国外',
     '筛选删除',
-    '采购组织更新'
+    '筛选删除（重点服务对象）',
+    '采购组织更新',
+    materialCode,
+    materialDesc
   )
 
   // 公司名称后新增列
-  const companyNameIndex =
-    newHeaders.indexOf('公司名称')
+  const companyNameIndex = newHeaders.indexOf('公司名称')
 
   if (companyNameIndex !== -1) {
     newHeaders.splice(
@@ -185,13 +199,17 @@ export async function processSrmData(buffer) {
     // 筛选删除
     // =====================
     rowData['筛选删除'] =
-      rowData['框架合同类型'] ===
-        '年度框架合同' ||
-      rowData['框架合同类型'] ===
-        '紫金商城' ||
+      rowData['框架合同类型'] === '年度框架合同' ||
+      rowData['框架合同类型'] === '紫金商城' ||
       rowData['订单删除标识'] === '是'
-        ? '是'
-        : '否'
+        ? '是' : '否'
+    // =====================
+    // 筛选删除（重点服务对象）
+    // =====================
+    rowData['筛选删除（重点服务对象）'] =
+      String(rowData['修改公司代码']) === '7129' &&
+      rowData['日常/年度'] === '年度'
+        ? '是': rowData['筛选删除']
 
     resultData.push(rowData)
   }
@@ -213,17 +231,26 @@ export async function processSrmData(buffer) {
     const row = []
 
     headers.forEach((header) => {
+      // 跳过原位置的物料列
+      if (
+        header === '订单物料代码' ||
+        header === '订单物料描述'
+      ) return
+
       row.push(item[header])
 
-      // 采购方式后新增列
       if (header === '采购方式') {
         row.push(item['订单月份'])
         row.push(item['国内国外'])
         row.push(item['筛选删除'])
+        row.push(item['筛选删除（重点服务对象）'])
         row.push(item['采购组织更新'])
+
+        // 插入物料列
+        row.push(item['订单物料代码'])
+        row.push(item['订单物料描述'])
       }
 
-      // 公司名称后新增列
       if (header === '公司名称') {
         row.push(item['修改公司代码'])
         row.push(item['修改公司名称'])
@@ -246,7 +273,8 @@ export async function createDurationReport(
   {
     durationColumn,
     startColumn,
-    endColumn
+    endColumn,
+    deduplicateColumn = '方案单单号'
   }
 ) {
   try {
@@ -275,7 +303,7 @@ export async function createDurationReport(
     '需求计划池单号',
     '状态',
     '采购模式',
-    '方案单单号',
+    deduplicateColumn,
     startColumn,
     endColumn
   ]
@@ -292,7 +320,7 @@ export async function createDurationReport(
 
   const outputRows = []
 
-  const uniqueCol = headerMap['方案单单号']
+  const uniqueCol = headerMap[deduplicateColumn]
 
   const startCol = headerMap[startColumn]
 

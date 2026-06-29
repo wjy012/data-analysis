@@ -140,7 +140,8 @@ ipcMain.handle('download-file', async (event, config) => {
             response.data, {
               durationColumn: '比价单审批耗时',
               startColumn: '询比价提交审批时间',
-              endColumn: '询比价单审核时间'
+              endColumn: '询比价单审核时间',
+              deduplicateColumn: '询比价单号'
             }
           )
         } else if (taskType === 'orderApproveTimeSection') {
@@ -149,7 +150,8 @@ ipcMain.handle('download-file', async (event, config) => {
             response.data, {
               durationColumn: '订单审批耗时',
               startColumn: '订单提交审批时间',
-              endColumn: '订单审核时间'
+              endColumn: '订单审核时间',
+              deduplicateColumn: '订单单号'
             }
           )
         } else if (taskType === 'bidApproveTimeSection') {
@@ -158,7 +160,8 @@ ipcMain.handle('download-file', async (event, config) => {
             response.data, {
               durationColumn: '定标流程耗时',
               startColumn: '定标开始时间',
-              endColumn: '定标时间'
+              endColumn: '定标时间',
+              deduplicateColumn: '招标商谈单号'
             }
           )
         }
