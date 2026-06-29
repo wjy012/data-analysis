@@ -1,7 +1,7 @@
 {
   "name": "data-analysis",
-  "version": "0.0.1",
-  "author": "wjy",
+  "version": "1.0.0",
+  "author": "wjy012",
   "private": true,
   "type": "module",
   "main": "electron/main.js",
