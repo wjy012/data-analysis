@@ -37,28 +37,41 @@ function calcHours(assignTime, submitTime) {
 
 export async function processSrmData(buffer) {
   const workbook = new ExcelJS.Workbook()
-
   await workbook.xlsx.load(buffer)
 
   const sourceSheet = workbook.getWorksheet(1)
+
+  if (!sourceSheet) {
+    throw new Error('未找到第一个工作表')
+  }
 
   // =========================
   // 第二行中文表头
   // =========================
   const headerRow = sourceSheet.getRow(2)
-
   const headers = []
 
-  headerRow.eachCell((cell) => {
-    headers.push(String(cell.value || '').trim())
+  headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    headers[colNumber - 1] = String(cell.value || '').trim()
   })
 
-  // 找到采购方式位置
-  const purchaseMethodIndex =
-    headers.indexOf('采购方式')
+  // =========================
+  // 必要表头校验
+  // =========================
+  const requiredHeaders = [
+    '采购方式',
+    '订单物料代码',
+    '订单物料描述',
+    '是否境外',
+    '代理申报公司代码',
+    '采购组织',
+    '采购组织名称'
+  ]
 
-  if (purchaseMethodIndex === -1) {
-    throw new Error('未找到采购方式列')
+  const missingHeaders = requiredHeaders.filter(header => !headers.includes(header))
+
+  if (missingHeaders.length > 0) {
+    throw new Error(`缺少必要列：${missingHeaders.join('、')}`)
   }
 
   // =========================
@@ -66,17 +79,15 @@ export async function processSrmData(buffer) {
   // =========================
   const newHeaders = [...headers]
 
-  // 找到相关列位置
+  // 删除订单物料代码原位置
   const materialCodeIndex = newHeaders.indexOf('订单物料代码')
-
-  const materialDescIndex = newHeaders.indexOf('订单物料描述')
-
-  // 删除原位置
   const materialCode = newHeaders.splice(materialCodeIndex, 1)[0]
 
-  const materialDesc = newHeaders.splice(newHeaders.indexOf('订单物料描述'),1)[0]
+  // 删除订单物料描述原位置
+  const materialDescIndex = newHeaders.indexOf('订单物料描述')
+  const materialDesc = newHeaders.splice(materialDescIndex, 1)[0]
 
-  // 在采购方式后插入
+  // 在采购方式后插入新增列和物料列
   const purchaseMethodPos = newHeaders.indexOf('采购方式')
 
   newHeaders.splice(
@@ -104,17 +115,68 @@ export async function processSrmData(buffer) {
   }
 
   // =========================
-  // 转JSON
+  // 单元格值转文本
+  // =========================
+  const getCellText = value => {
+    if (value === null || value === undefined) {
+      return ''
+    }
+
+    if (typeof value === 'object') {
+      // 公式单元格
+      if ('result' in value) {
+        return String(value.result ?? '').trim()
+      }
+
+      // 富文本单元格
+      if (Array.isArray(value.richText)) {
+        return value.richText.map(item => item.text || '').join('').trim()
+      }
+
+      // 超链接等文本单元格
+      if ('text' in value) {
+        return String(value.text ?? '').trim()
+      }
+    }
+
+    return String(value).trim()
+  }
+
+  // =========================
+  // 日期转换
+  // =========================
+  const getDateParts = value => {
+    if (!value) {
+      return null
+    }
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return {
+        month: value.getMonth() + 1,
+        day: value.getDate()
+      }
+    }
+
+    const text = getCellText(value)
+    const match = text.match(/(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})/)
+
+    if (!match) {
+      return null
+    }
+
+    return {
+      month: Number(match[2]),
+      day: Number(match[3])
+    }
+  }
+
+  // =========================
+  // 转JSON并执行数据校验
   // =========================
   const resultData = []
 
-  for (
-    let rowIndex = 3;
-    rowIndex <= sourceSheet.rowCount;
-    rowIndex++
-  ) {
+  for (let rowIndex = 3; rowIndex <= sourceSheet.rowCount; rowIndex++) {
     const row = sourceSheet.getRow(rowIndex)
-
     const values = row.values
 
     // 空行跳过
@@ -125,29 +187,65 @@ export async function processSrmData(buffer) {
     const rowData = {}
 
     headers.forEach((header, index) => {
+      if (!header) {
+        return
+      }
+
       rowData[header] = values[index + 1]
     })
+
+    // 整行没有有效数据时跳过
+    const hasValue = headers.some(header => getCellText(rowData[header]) !== '')
+
+    if (!hasValue) {
+      continue
+    }
+
+    const overseasFlag = getCellText(rowData['是否境外'])
+    const agentCompanyCode = getCellText(rowData['代理申报公司代码'])
+    const purchaseOrg = getCellText(rowData['采购组织'])
+    const purchaseOrgName = getCellText(rowData['采购组织名称'])
+
+    // =====================
+    // 数据校验1
+    // 是否境外为“否”且代理申报公司代码有值时，
+    // 检查是否包含英文字母
+    // =====================
+    const invalidOverseas = overseasFlag === '否' &&
+      agentCompanyCode !== '' &&
+      /[a-zA-Z]/.test(agentCompanyCode)
+
+    // =====================
+    // 数据校验2
+    // 采购组织与采购组织名称对应关系
+    // =====================
+    let invalidPurchaseOrgName = false
+
+    if (purchaseOrg === '7129') {
+      invalidPurchaseOrgName = purchaseOrgName !== '紫金矿业物流有限公司采购组织'
+    } else if (purchaseOrg === '7107') {
+      invalidPurchaseOrgName = purchaseOrgName !== '紫金矿业物流（厦门）有限公司采购组织'
+    }
+
+    rowData.__validation = {
+      invalidOverseas,
+      invalidPurchaseOrgName
+    }
 
     // =====================
     // 国内国外
     // =====================
-    rowData['国内国外'] = rowData['是否境外'] === '否'? '国内' : '国外'
+    rowData['国内国外'] = overseasFlag === '否' ? '国内' : '国外'
 
     // =====================
     // 订单月份
     // =====================
     let orderMonth = ''
+    const dateParts = getDateParts(rowData['订单审核时间'])
 
-    if (rowData['订单审核时间']) {
-      const dateStr = String(
-        rowData['订单审核时间']
-      ).substring(0, 10)
-
-      const month = Number(dateStr.substring(5, 7))
-
-      const day = Number(dateStr.substring(8, 10))
-
-      orderMonth = day >= 26? (month === 12 ? 1 : month + 1): month
+    if (dateParts) {
+      const { month, day } = dateParts
+      orderMonth = day >= 26 ? (month === 12 ? 1 : month + 1) : month
     }
 
     rowData['订单月份'] = orderMonth
@@ -155,16 +253,14 @@ export async function processSrmData(buffer) {
     // =====================
     // 采购组织更新
     // =====================
-    const purchaseOrg = Number(rowData['采购组织'])
-
-    const companyName = rowData['买方公司名称']
-
+    const purchaseOrgNumber = Number(purchaseOrg)
+    const buyerCompanyName = getCellText(rowData['买方公司名称'])
     let purchaseOrgNew = ''
 
-    if (purchaseOrg === 7129) {
-      purchaseOrgNew = companyName === '紫金矿业物流（厦门）有限公司'? 7107: 7129
-    } else if (purchaseOrg === 7107) {
-      purchaseOrgNew = companyName === '紫金矿业物流有限公司'? 7129: 7107
+    if (purchaseOrgNumber === 7129) {
+      purchaseOrgNew = buyerCompanyName === '紫金矿业物流（厦门）有限公司' ? 7107 : 7129
+    } else if (purchaseOrgNumber === 7107) {
+      purchaseOrgNew = buyerCompanyName === '紫金矿业物流有限公司' ? 7129 : 7107
     }
 
     rowData['采购组织更新'] = purchaseOrgNew
@@ -172,9 +268,9 @@ export async function processSrmData(buffer) {
     // =====================
     // 修改公司代码、修改公司名称
     // =====================
-    if (String(rowData['公司代码']) === '7129') {
-      rowData['修改公司代码'] = rowData['代理申报公司代码']
-      rowData['修改公司名称'] = rowData['代理申报公司']
+    if (getCellText(rowData['公司代码']) === '7129' || '7680') {
+      rowData['修改公司代码'] = rowData['代理申报公司代码']? rowData['代理申报公司代码']: rowData['公司代码']
+      rowData['修改公司名称'] = rowData['代理申报公司']? rowData['代理申报公司']: rowData['公司名称']
     } else {
       rowData['修改公司代码'] = rowData['公司代码']
       rowData['修改公司名称'] = rowData['公司名称']
@@ -183,18 +279,24 @@ export async function processSrmData(buffer) {
     // =====================
     // 筛选删除
     // =====================
+    const frameworkContractType = getCellText(rowData['框架合同类型'])
+    const orderDeleteFlag = getCellText(rowData['订单删除标识'])
+
     rowData['筛选删除'] =
-      rowData['框架合同类型'] === '年度框架合同' ||
-      rowData['框架合同类型'] === '紫金商城' ||
-      rowData['订单删除标识'] === '是'
-        ? '是' : '否'
+      frameworkContractType === '年度框架合同' ||
+      frameworkContractType === '紫金商城' ||
+      orderDeleteFlag === '是'
+        ? '是'
+        : '否'
+
     // =====================
     // 筛选删除（重点服务对象）
     // =====================
     rowData['筛选删除（重点服务对象）'] =
-      String(rowData['修改公司代码']) === '7129' &&
-      rowData['日常/年度'] === '年度'
-        ? '是': rowData['筛选删除']
+      getCellText(rowData['修改公司代码']) === '7129' &&
+      getCellText(rowData['日常/年度']) === '年度'
+        ? '是'
+        : rowData['筛选删除']
 
     resultData.push(rowData)
   }
@@ -205,47 +307,78 @@ export async function processSrmData(buffer) {
   // 创建新Workbook
   // =========================
   const outputWorkbook = new ExcelJS.Workbook()
-
   const outputSheet = outputWorkbook.addWorksheet('Sheet1')
 
   // 中文表头
   outputSheet.addRow(newHeaders)
 
-  // 数据
+  // 获取需要高亮的列号
+  const overseasColumnNumber = newHeaders.indexOf('是否境外') + 1
+  const purchaseOrgNameColumnNumber = newHeaders.indexOf('采购组织名称') + 1
+
+  // 高亮样式：浅红色背景、深红色字体
+  const errorFill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: {
+      argb: 'FFFFC7CE'
+    }
+  }
+
+  // =========================
+  // 写入数据并设置高亮
+  // =========================
   for (const item of resultData) {
-    const row = []
+    const outputRowData = []
 
-    headers.forEach((header) => {
-      // 跳过原位置的物料列
-      if (
-        header === '订单物料代码' ||
-        header === '订单物料描述'
-      ) return
+    headers.forEach(header => {
+      // 跳过物料列原位置
+      if (header === '订单物料代码' || header === '订单物料描述') {
+        return
+      }
 
-      row.push(item[header])
+      outputRowData.push(item[header])
 
       if (header === '采购方式') {
-        row.push(item['订单月份'])
-        row.push(item['国内国外'])
-        row.push(item['筛选删除'])
-        row.push(item['筛选删除（重点服务对象）'])
-        row.push(item['采购组织更新'])
-
-        // 插入物料列
-        row.push(item['订单物料代码'])
-        row.push(item['订单物料描述'])
+        outputRowData.push(item['订单月份'])
+        outputRowData.push(item['国内国外'])
+        outputRowData.push(item['筛选删除'])
+        outputRowData.push(item['筛选删除（重点服务对象）'])
+        outputRowData.push(item['采购组织更新'])
+        outputRowData.push(item['订单物料代码'])
+        outputRowData.push(item['订单物料描述'])
       }
 
       if (header === '公司名称') {
-        row.push(item['修改公司代码'])
-        row.push(item['修改公司名称'])
+        outputRowData.push(item['修改公司代码'])
+        outputRowData.push(item['修改公司名称'])
       }
     })
 
-    outputSheet.addRow(row)
+    const outputRow = outputSheet.addRow(outputRowData)
+
+    // 校验1不通过时高亮“是否境外”
+    if (item.__validation.invalidOverseas && overseasColumnNumber > 0) {
+      const cell = outputRow.getCell(overseasColumnNumber)
+      cell.fill = errorFill
+      cell.font = {
+        ...cell.font,
+      }
+    }
+
+    // 校验2不通过时高亮“采购组织名称”
+    if (item.__validation.invalidPurchaseOrgName && purchaseOrgNameColumnNumber > 0) {
+      const cell = outputRow.getCell(purchaseOrgNameColumnNumber)
+      cell.fill = errorFill
+      cell.font = {
+        ...cell.font,
+      }
+    }
   }
 
+  // =========================
   // 表头样式
+  // =========================
   outputSheet.getRow(1).font = {
     bold: true
   }
